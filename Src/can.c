@@ -119,6 +119,8 @@ uint8_t can_stop(void)
 
 uint8_t can_start(uint32_t baud)
 {
+    uint8_t unknown_rate = 0;
+
     /* Initialisation */
     hcan1.Instance = CAN1;
     hcan1.Init.Mode = CAN_MODE_NORMAL;
@@ -129,51 +131,63 @@ uint8_t can_start(uint32_t baud)
     hcan1.Init.ReceiveFifoLocked = DISABLE;
     hcan1.Init.TransmitFifoPriority = DISABLE;
 
-    switch (baud) {
+    /*
+     * Can bit time calculations taken from http://www.bittiming.can-wiki.info/ - pre-calculated
+     * for supported CAN peripheral clock speeds and baud rates.
+     *
+     * Unable to query the CAN peripheral clock speed until it's initialised, however the
+     * STM32F4 CAN peripheral appears to always be clocked from PCLK1/APB1.
+     */
+    uint32_t pclk1_freq = HAL_RCC_GetPCLK1Freq();
 
-        /*
-         * Can bit time calculations taken from http://www.bittiming.can-wiki.info/#bxCAN
-         *
-         * todo: get the CAN peripheral clock speed and use that instead of board definition?
-         *
-         */
+    switch (pclk1_freq) {
 
-#ifdef NUCLEO_F446
-        /* Nucleo F446 running at 180MHz with 45MHz APB1 clock */
+        case 45000000:
+            /* 45MHz APB1 clock */
+            switch (baud) {
+                case 125000:
+                    hcan1.Init.Prescaler = 20;
+                    hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+                    hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+                    hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+                    break;
 
-        case 125000:
-            hcan1.Init.Prescaler = 20;
-            hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
-            hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
-            hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-            break;
+                case 250000:
+                    hcan1.Init.Prescaler = 10;
+                    hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+                    hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+                    hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+                    break;
 
-        case 250000:
-            hcan1.Init.Prescaler = 10;
-            hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
-            hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
-            hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-            break;
+                case 500000:
+                    hcan1.Init.Prescaler = 5;
+                    hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+                    hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+                    hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+                    break;
 
-        case 500000:
-            hcan1.Init.Prescaler = 5;
-            hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
-            hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
-            hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-            break;
+                case 1000000:
+                    hcan1.Init.Prescaler = 3;
+                    hcan1.Init.TimeSeg1 = CAN_BS1_12TQ;
+                    hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+                    hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+                    break;
 
-        case 1000000:
-            hcan1.Init.Prescaler = 3;
-            hcan1.Init.TimeSeg1 = CAN_BS1_12TQ;
-            hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
-            hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-            break;
-#endif
+                default:
+                    /* Unsupported baud rate */
+                    unknown_rate = 1;
+                    break;
+            }
 
         default:
-            /* Unsupported baud rate */
-            printf("can_start(), error - unsupported baud rate\n");
-            return(0);
+            /* unsupported CAN peripheral clock frequency */
+            unknown_rate = 1;
+            break;
+    }
+
+    if (unknown_rate) {
+        printf("can_start(), error - unable to calculate bit timings\n");
+        return(0);
     }
 
     if (HAL_CAN_Init(&hcan1) != HAL_OK)
